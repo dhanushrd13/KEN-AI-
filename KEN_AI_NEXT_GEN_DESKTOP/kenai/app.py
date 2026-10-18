@@ -170,7 +170,7 @@ class MainWindow(QMainWindow):
         self.busy=False
         if error: self.status.setText('Connection needs attention'); self.append_message('assistant',error)
         else:
-            is_web_result=str(result).startswith('WEB LOOKUP · ')
+            is_web_result=str(result).startswith('WEB ANSWER · ')
             self.status.setText('Web results found · review the source links below' if is_web_result else 'Ready · response generated locally'); self.append_message('assistant',result)
             if self.tts:
                 try: services.speak('I found current web results. Please check the source links in the chat.' if is_web_result else result)
@@ -272,7 +272,15 @@ class MainWindow(QMainWindow):
                 query=services.normalize_web_query(query)
                 rows=services.search_web(query)
                 if not rows: raise RuntimeError('The web search returned no results, so KEN did not guess an answer.')
-                result='WEB LOOKUP · '+query+'\nSearch result snippets (check the linked sources):\n\n'+('\n\n'.join(f"{i+1}. {r.get('title') or 'Search result'}\n{r.get('body') or 'No snippet was supplied.'}\nSource: {r.get('url') or 'URL unavailable'}" for i,r in enumerate(rows[:5])))
+                source_text='\n\n'.join(f"[{i+1}] {r.get('title') or 'Search result'}\n{r.get('body') or 'No snippet was supplied.'}\nURL: {r.get('url') or 'URL unavailable'}" for i,r in enumerate(rows[:5]))
+                try:
+                    answer=services.ollama_chat([
+                        {"role":"system","content":"Answer the user's question using only the supplied live web search results. If they do not answer it, say so clearly. Do not use prior knowledge to fill gaps. Keep the answer direct, and add inline source markers like [1] that correspond to the supplied results."},
+                        {"role":"user","content":f"Question: {query}\n\nLive search results:\n{source_text}"}
+                    ])
+                except Exception:
+                    answer='I found these live web results. Read the linked sources below; local answer generation is unavailable.'
+                result='WEB ANSWER · '+query+'\n\n'+answer+'\n\nSources:\n'+source_text
                 error=None
             except Exception as exc: result=''; error=str(exc)
             self.signals.done.emit(result,error)

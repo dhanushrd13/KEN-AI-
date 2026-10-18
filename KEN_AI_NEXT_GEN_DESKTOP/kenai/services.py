@@ -3,8 +3,9 @@ from __future__ import annotations
 import difflib, json, os, re, sqlite3, threading, urllib.error, urllib.request
 from contextlib import contextmanager
 from datetime import datetime
+from html.parser import HTMLParser
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlparse
 from uuid import uuid4
 
 APP_DIR = Path(os.getenv("LOCALAPPDATA", str(Path.home()))) / "KenAI"
@@ -59,12 +60,53 @@ def ollama_chat(messages, model="qwen3:1.7b", base_url="http://localhost:11434")
         raise RuntimeError("Ollama is not responding. Start Ollama and make sure qwen3:1.7b is installed.") from e
 
 def search_web(query):
+    """Search the web using DDGS, with a standard-library HTML fallback."""
+    failures=[]
     try:
         from ddgs import DDGS
-        results = DDGS().text(query, max_results=5)
-        return [{"title":x.get("title","Result"), "url":x.get("href") or x.get("url"), "body":x.get("body","")} for x in results]
-    except ImportError as e: raise RuntimeError("Web search needs the optional package: pip install ddgs") from e
-    except Exception as e: raise RuntimeError(f"Web search failed: {e}") from e
+        results=DDGS().text(query,max_results=5)
+        rows=[{"title":x.get("title") or "Search result","url":x.get("href") or x.get("url"),"body":x.get("body") or ""} for x in results]
+        rows=[row for row in rows if row["url"]]
+        if rows: return rows[:5]
+        failures.append("DDGS returned no results")
+    except ImportError:
+        failures.append("optional ddgs package is not installed")
+    except Exception as e:
+        failures.append(f"DDGS: {e}")
+
+    class ResultsParser(HTMLParser):
+        def __init__(self):
+            super().__init__(); self.rows=[]; self.current=None; self.capture=None; self.buffer=[]
+        def handle_starttag(self,tag,attrs):
+            attrs=dict(attrs); classes=attrs.get("class","").split()
+            if tag=="a" and "result__a" in classes:
+                href=attrs.get("href","")
+                if href.startswith("//"): href="https:"+href
+                parsed=parse_qs(urlparse(href).query)
+                href=parsed.get("uddg",[href])[0]
+                self.current={"title":"","url":href}; self.capture="title"; self.buffer=[]
+            elif tag in ("a","div") and "result__snippet" in classes and self.rows:
+                self.capture="body"; self.buffer=[]
+        def handle_data(self,data):
+            if self.capture: self.buffer.append(data)
+        def handle_endtag(self,tag):
+            if self.capture=="title" and tag=="a" and self.current:
+                self.current["title"]=" ".join("".join(self.buffer).split()); self.rows.append(self.current); self.current=None; self.capture=None
+            elif self.capture=="body" and tag in ("a","div"):
+                if self.rows: self.rows[-1]["body"]=" ".join("".join(self.buffer).split())
+                self.capture=None
+    try:
+        url="https://html.duckduckgo.com/html/?"+urlencode({"q":query})
+        req=urllib.request.Request(url,headers={"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125.0 Safari/537.36"})
+        with urllib.request.urlopen(req,timeout=18) as response: page=response.read().decode("utf-8","replace")
+        parser=ResultsParser(); parser.feed(page)
+        rows=[row for row in parser.rows if row.get("url","").startswith(("http://","https://"))]
+        if rows: return rows[:5]
+        failures.append("DuckDuckGo HTML returned no results")
+    except Exception as e:
+        failures.append(f"DuckDuckGo fallback: {e}")
+    detail="; ".join(failures)
+    raise RuntimeError("KEN could not reach a web search provider. Check that this computer is online and that firewall, VPN, or proxy settings allow DuckDuckGo. Details: "+detail)
 
 def needs_web_lookup(query):
     """Route common time-sensitive questions to live search instead of guessing from a small local model."""

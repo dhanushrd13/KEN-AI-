@@ -12,7 +12,7 @@ KEN AI is a local-first Windows desktop assistant with the dark navy and red-glo
 - Current weather through Open-Meteo, live CPU/memory/storage/battery status, and local conversation history.
 - Browse PC opens the Windows file picker from the drive root. KEN opens the selected file using its normal Windows app; Summarize sends supported selected document text to the local Ollama model. KEN does not scan your entire laptop automatically.
 - WhatsApp Web opens inside KEN using Qt WebEngine. Sign in with WhatsApp there to see your live chat list and use WhatsApp. Its browser cookies are stored locally under `%LOCALAPPDATA%\KenAI\whatsapp-profile`. KEN does not copy WhatsApp messages into its own memory.
-- Web search returns result titles, summaries, and source URLs.
+- Web search uses DDGS first and a built-in DuckDuckGo HTML fallback if that provider call fails. KEN then asks the local Ollama model to answer using only the live search snippets and includes the source URLs. If both search paths fail, the chat shows a connection diagnostic instead of inventing an answer. Web search still requires internet access on this PC.
 - Questions about current officeholders and other time-sensitive topics (for example current news, prices, scores, weather, or “latest” facts) automatically show web result snippets and source URLs instead of asking the small local model to guess. Officeholder detection tolerates common spelling mistakes. If search fails, KEN reports that rather than silently making up an answer.
 - Setup creates a **KEN AI** desktop shortcut with the KEN icon after dependencies install successfully.
 
