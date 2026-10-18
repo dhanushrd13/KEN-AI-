@@ -1,6 +1,6 @@
 """Local-first assistant services. Optional integrations fail with useful messages."""
 from __future__ import annotations
-import json, os, sqlite3, threading, urllib.error, urllib.request
+import json, os, re, sqlite3, threading, urllib.error, urllib.request
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -65,6 +65,14 @@ def search_web(query):
         return [{"title":x.get("title","Result"), "url":x.get("href") or x.get("url"), "body":x.get("body","")} for x in results]
     except ImportError as e: raise RuntimeError("Web search needs the optional package: pip install ddgs") from e
     except Exception as e: raise RuntimeError(f"Web search failed: {e}") from e
+
+def needs_web_lookup(query):
+    """Route common time-sensitive questions to live search instead of guessing from a small local model."""
+    text=" ".join(re.findall(r"[a-z0-9]+",query.lower()))
+    current_terms=("current", "currently", "today", "latest", "right now", "as of", "this week", "this month", "this year", "weather", "news", "price", "score", "standings", "forecast")
+    offices=("chief minister", "prime minister", "president", "governor", "mayor", "ceo", "chairman", "leader")
+    asks_who=bool(re.search(r"\bwho\s+(is|are)\b",text))
+    return any(term in text for term in current_terms) or (asks_who and any(office in text for office in offices))
 
 def weather_for_location(city):
     """Fetch current modelled weather for an explicitly selected city."""

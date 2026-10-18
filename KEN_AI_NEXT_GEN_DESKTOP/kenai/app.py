@@ -155,6 +155,8 @@ class MainWindow(QMainWindow):
         if not text or self.busy:
             if self.busy: self.status.setText('KEN is finishing the current request. Your text remains in the input.')
             return
+        if services.needs_web_lookup(text):
+            self.start_web_lookup(text,automatic=True); return
         if self.wake_stop:
             self.wake_stop.set(); self.wake_cancelled=True
             self.wake_button.setText('Stopping…'); self.wake_button.setEnabled(False)
@@ -168,9 +170,10 @@ class MainWindow(QMainWindow):
         self.busy=False
         if error: self.status.setText('Connection needs attention'); self.append_message('assistant',error)
         else:
-            self.status.setText('Ready · response generated locally'); self.append_message('assistant',result)
+            is_web_result=str(result).startswith('WEB LOOKUP · ')
+            self.status.setText('Web results found · review the source links below' if is_web_result else 'Ready · response generated locally'); self.append_message('assistant',result)
             if self.tts:
-                try: services.speak(result)
+                try: services.speak('I found current web results. Please check the source links in the chat.' if is_web_result else result)
                 except Exception as exc: self.status.setText(f'Speech output unavailable: {exc}')
         self.input.setFocus()
         if self.auto_wake: QTimer.singleShot(max(2500,min(30000,len(str(result).split())*350+2000)),self.start_wake_word)
@@ -255,11 +258,21 @@ class MainWindow(QMainWindow):
     def web_search(self):
         query=self.input.text().strip()
         if not query: self.status.setText('Type a search in the chat field, then choose Web search.'); self.input.setFocus(); return
+        self.start_web_lookup(query,automatic=False)
+    def start_web_lookup(self,query,automatic=False):
         if self.busy: self.status.setText('KEN is finishing the current request first.'); return
-        self.input.clear(); self.append_message('user','Search the web for: '+query); self.status.setText('Searching the web…'); self.busy=True
+        if self.wake_stop:
+            self.wake_stop.set(); self.wake_cancelled=True; self.wake_button.setText('Stopping…'); self.wake_button.setEnabled(False)
+        self.input.clear(); self.append_message('user',query if automatic else 'Search the web for: '+query)
+        self.status.setText('Checking current information online…' if automatic else 'Searching the web…'); self.busy=True
+        threading.Thread(target=self.web_lookup_worker,args=(query,),daemon=True).start()
+    def web_lookup_worker(self,query):
         def run():
             try:
-                rows=services.search_web(query); result='Web results for: '+query+'\n\n'+('\n\n'.join(f"{i+1}. {r['title']}\n{r['body']}\n{r['url']}" for i,r in enumerate(rows)) or 'No results found.'); error=None
+                rows=services.search_web(query)
+                if not rows: raise RuntimeError('The web search returned no results, so KEN did not guess an answer.')
+                result='WEB LOOKUP · '+query+'\nSearch result snippets (check the linked sources):\n\n'+('\n\n'.join(f"{i+1}. {r.get('title') or 'Search result'}\n{r.get('body') or 'No snippet was supplied.'}\nSource: {r.get('url') or 'URL unavailable'}" for i,r in enumerate(rows[:5])))
+                error=None
             except Exception as exc: result=''; error=str(exc)
             self.signals.done.emit(result,error)
         threading.Thread(target=run,daemon=True).start()
