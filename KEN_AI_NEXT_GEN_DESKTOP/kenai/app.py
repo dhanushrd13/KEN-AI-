@@ -269,6 +269,7 @@ class MainWindow(QMainWindow):
     def web_lookup_worker(self,query):
         def run():
             try:
+                query=services.normalize_web_query(query)
                 rows=services.search_web(query)
                 if not rows: raise RuntimeError('The web search returned no results, so KEN did not guess an answer.')
                 result='WEB LOOKUP · '+query+'\nSearch result snippets (check the linked sources):\n\n'+('\n\n'.join(f"{i+1}. {r.get('title') or 'Search result'}\n{r.get('body') or 'No snippet was supplied.'}\nSource: {r.get('url') or 'URL unavailable'}" for i,r in enumerate(rows[:5])))

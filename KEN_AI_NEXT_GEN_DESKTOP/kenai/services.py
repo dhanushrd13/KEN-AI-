@@ -1,6 +1,6 @@
 """Local-first assistant services. Optional integrations fail with useful messages."""
 from __future__ import annotations
-import json, os, re, sqlite3, threading, urllib.error, urllib.request
+import difflib, json, os, re, sqlite3, threading, urllib.error, urllib.request
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -68,11 +68,20 @@ def search_web(query):
 
 def needs_web_lookup(query):
     """Route common time-sensitive questions to live search instead of guessing from a small local model."""
-    text=" ".join(re.findall(r"[a-z0-9]+",query.lower()))
+    words=re.findall(r"[a-z0-9]+",query.lower())
+    office_words=("chief", "minister", "prime", "president", "governor", "mayor", "ceo", "chairman", "leader")
+    words=[(difflib.get_close_matches(word,office_words,n=1,cutoff=0.76) or [word])[0] for word in words]
+    text=" ".join(words)
     current_terms=("current", "currently", "today", "latest", "right now", "as of", "this week", "this month", "this year", "weather", "news", "price", "score", "standings", "forecast")
     offices=("chief minister", "prime minister", "president", "governor", "mayor", "ceo", "chairman", "leader")
     asks_who=bool(re.search(r"\bwho\s+(is|are)\b",text))
     return any(term in text for term in current_terms) or (asks_who and any(office in text for office in offices))
+
+def normalize_web_query(query):
+    """Correct simple misspellings of officeholder terms before searching."""
+    office_words=("chief", "minister", "prime", "president", "governor", "mayor", "ceo", "chairman", "leader")
+    words=re.findall(r"[a-z0-9]+",query.lower())
+    return " ".join((difflib.get_close_matches(word,office_words,n=1,cutoff=0.76) or [word])[0] for word in words)
 
 def weather_for_location(city):
     """Fetch current modelled weather for an explicitly selected city."""
